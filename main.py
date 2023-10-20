@@ -1,48 +1,53 @@
-import json
-import network
-import urequests as requests
-
-from machine import Timer
-
-def connect(name, passwd):
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    wlan.scan()
-    wlan.connect(name, passwd)
-    return wlan.isconnected()
+import config
+import pet_home_server as s
+import schedule
+import sensor
 
 
-def report_boot_record(url):
-    requests.post(url)
-    
-def read_client_config(url):
-    response = requests.get(url)
-    res_body = response.text
-    return json.loads(res_body)
-    
-wifi_name = 'HomeDyy'
-wifi_passwd = '01030115'
-report_boot_record_url = ''
-read_client_config_url = ''
-default_heartbeat_interval = 5
-default_monitor_interval = 30
+def report_heartbeat():
+    try:
+        s.report_heartbeat()
+        print('Report Heartbeat Success')
+    except Exception:
+        print('Report Heartbeat Error')
 
 
-f = connect(wifi_name, wifi_passwd)
-print('wifi connect result: %s' % f)
+def read_sensor_and_report():
+    try:
+        sensor_data = sensor.read()
+        if sensor_data.is_valid:
+            s.report_status(sensor_data.temperature, sensor_data.humidity)
+        print('Report Status Success')
+    except Exception:
+        print('Report Status Error')
 
-report_boot_record(report_boot_record_url)
 
-res_client_config = read_client_config(read_client_config_url)
-print(res_client_config)
-heartbeat_interval = default_heartbeat_interval
-monitor_interval = default_monitor_interval
-if res_client_config['success']:
-    client_config = res_client_config['data']
-    heartbeat_interval = client_config['heartbeatInterval']
-    monitor_interval = client_config['monitorInterval']
-print(heartbeat_interval)
-print(monitor_interval)
+if __name__ == '__main__':
+    # 上报启动记录
+    try:
+        s.report_boot_record()
+        print('Report Boot Record Success')
+    except Exception:
+        print('Report Boot Record Error')
 
-# time1 = Timer(1)
-# timer1.init(period=5000)
+    # 查询客户端配置
+    heartbeat_interval = config.default_heartbeat_interval
+    monitor_interval = config.default_monitor_interval
+    try:
+        client_config_response = s.find_client_config()
+        if client_config_response['success']:
+            heartbeat_interval = client_config_response['data']['heartbeatInterval']
+            monitor_interval = client_config_response['data']['monitorInterval']
+            print('Find Client Config Success')
+        else:
+            print('Find Client Config Failed')
+    except Exception:
+        print('Find Client Config Error')
+
+    # 定时上报心跳
+    schedule.every(heartbeat_interval).seconds.do(report_heartbeat)
+    # 定时上报传感器状态
+    schedule.every(monitor_interval).seconds.do(read_sensor_and_report)
+
+    while True:
+        schedule.run_pending()
